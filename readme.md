@@ -1,14 +1,18 @@
-requirements have the needed libraries.
+# AI Agent Usage Guide
 
-execute ai_agent.py
+## Requirements
+Python3 in order to create virtual environment and import libraries from requirements.txt
 
-two functions available, one prints on screen other saves on answer.txt
+## Execution
+Run the AI agent:
+```bash
+python ai_agent.py
 
-Add text on sample.txt, choose file type and change question with your own.
+### Use the following format to write your question in 'sample.txt' and get output in 'answer.txt' 
 
-# Usage
 file_path = "sample.txt"
 file_type = "txt"
 question = "How do Large Language Models work?"
+
 
 
