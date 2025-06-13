@@ -1,14 +1,12 @@
-requirements have the needed libraries.
-
+#1. Create venv and install requirements.txt
+´´´
+python3 -m venv venv
+source venv/bin/activate
+sudo pip install -r requirements.txt
+sudo apt-get install python3-tk
 execute ai_agent.py
+´´
 
-two functions available, one prints on screen other saves on answer.txt
-
-Add text on sample.txt, choose file type and change question with your own.
-
-# Usage
-file_path = "sample.txt"
-file_type = "txt"
-question = "How do Large Language Models work?"
-
+#2. Open your desired file and write your question
+#3. Choose any of the models to answer it.
 
