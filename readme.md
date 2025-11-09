@@ -1,7 +1,7 @@
 # 🧠 AI Agent Usage
 
 <p align="center">
-  <img src="images/snapshot.png" alt="AI Agent Interface" width="600"/>
+  <img src="images/GUI.png" alt="AI Agent Interface" width="600"/>
 </p>
 
 <p align="center"><em>🖼️ Example of the AI Document Q&A interface in action.</em></p>
