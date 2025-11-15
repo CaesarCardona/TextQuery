@@ -43,11 +43,11 @@ python ai_agent.py
 mongosh
 ```
 
-#Switch to DB
+### Switch to DB
 ```bash
 use ai_qa_chat
 ```
-#Check Queries
+###Check Queries
 ```bash
 db.queries.find().pretty()
 ```
