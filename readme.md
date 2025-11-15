@@ -7,6 +7,9 @@
 <p align="center"><em>🖼️ Example of the AI Document Q&A interface in action.</em></p>
 
 ---
+## Requirements:
+Minimum: 8 GB RAM
+Recommended: 16 GB RAM
 
 ## 1️⃣ Set Up Virtual Environment & Install Dependencies
 
@@ -20,8 +23,10 @@ source venv/bin/activate
 # Install required Python packages
 pip install -r requirements.txt
 
-# Install Tkinter (required for GUI, if needed)
-sudo apt-get install python3-tk
+# Install if needed
+pip install transformers
+pip install torch --no-cache-dir
+
 
 # Run the AI agent
 python ai_agent.py

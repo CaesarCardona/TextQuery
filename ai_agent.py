@@ -1,10 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from transformers import pipeline
-from odf.opendocument import load
-from odf.text import P
-import fitz  # PyMuPDF
-import docx
 import os
 import threading
 
@@ -29,46 +25,19 @@ def read_txt_file(path):
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()
 
-def read_odt_file(path):
-    doc = load(path)
-    text = ""
-    for p in doc.getElementsByType(P):
-        if p.firstChild:
-            text += p.firstChild.data + "\n"
-    return text
-
-def read_pdf_file(path):
-    doc = fitz.open(path)
-    return "\n".join(page.get_text() for page in doc)
-
-def read_docx_file(path):
-    doc = docx.Document(path)
-    return "\n".join(p.text for p in doc.paragraphs)
-
 def browse_file():
     global file_loaded, loaded_text
-    path = filedialog.askopenfilename(filetypes=[("Supported files", "*.txt *.pdf *.odt *.docx")])
+    path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt")])
     if not path:
         return
     entry_file.delete(0, tk.END)
     entry_file.insert(0, path)
 
-    ext = os.path.splitext(path)[1].lower()
     set_status("Reading file...")
     root.update()
 
     try:
-        if ext == ".txt":
-            loaded_text = read_txt_file(path)
-        elif ext == ".odt":
-            loaded_text = read_odt_file(path)
-        elif ext == ".pdf":
-            loaded_text = read_pdf_file(path)
-        elif ext == ".docx":
-            loaded_text = read_docx_file(path)
-        else:
-            messagebox.showerror("Unsupported", "Supported: .txt, .odt, .pdf, .docx")
-            return
+        loaded_text = read_txt_file(path)
         file_loaded = True
         set_status("File loaded successfully.")
     except Exception as e:
@@ -127,7 +96,7 @@ def answer_question(question):
 
 # ----------------- GUI -----------------
 root = tk.Tk()
-root.title("AI Document Q&A Chat")
+root.title("AI TXT Q&A Chat")
 
 # File selection
 tk.Label(root, text="Select File:").grid(row=0, column=0, sticky='e', padx=5, pady=5)
