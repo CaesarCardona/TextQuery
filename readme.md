@@ -47,7 +47,7 @@ mongosh
 ```bash
 use ai_qa_chat
 ```
-###Check Queries
+### Check Queries
 ```bash
 db.queries.find().pretty()
 ```
