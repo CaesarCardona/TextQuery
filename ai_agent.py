@@ -1,10 +1,21 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from transformers import pipeline
-import os
 import threading
+from pymongo import MongoClient
 
-# Supported models
+# ----------------- MongoDB Setup -----------------
+# Replace with your MongoDB connection string if using Atlas
+client = MongoClient("mongodb://localhost:27017/")
+db = client['ai_qa_chat']         # Database
+collection = db['queries']        # Collection to store questions and answers
+
+def save_to_db(question, answer):
+    """Save question-answer pair to MongoDB."""
+    doc = {"question": question, "answer": answer}
+    collection.insert_one(doc)
+
+# ----------------- Models -----------------
 models_info = {
     "Fast & Light (DistilBERT)": "distilbert-base-uncased-distilled-squad",
     "Balanced (MiniLM)": "deepset/minilm-uncased-squad2",
@@ -12,11 +23,12 @@ models_info = {
     "Multilingual (XLM-RoBERTa)": "deepset/xlm-roberta-base-squad2"
 }
 
-# Global state
+# ----------------- Global State -----------------
 loaded_text = None
 qa_model = None
 file_loaded = False
 
+# ----------------- Helper Functions -----------------
 def chunk_text(text, max_tokens=400):
     words = text.split()
     return [' '.join(words[i:i + max_tokens]) for i in range(0, len(words), max_tokens)]
@@ -25,6 +37,11 @@ def read_txt_file(path):
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()
 
+def set_status(text):
+    status_label.config(text=text)
+    root.update_idletasks()
+
+# ----------------- File Handling -----------------
 def browse_file():
     global file_loaded, loaded_text
     path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt")])
@@ -44,6 +61,7 @@ def browse_file():
         messagebox.showerror("Error", str(e))
         set_status("Idle")
 
+# ----------------- Model Handling -----------------
 def load_model():
     global qa_model
     model_key = model_choice.get()
@@ -52,12 +70,8 @@ def load_model():
     qa_model = pipeline("question-answering", model=models_info[model_key])
     set_status("Model ready!")
 
-def set_status(text):
-    status_label.config(text=text)
-    root.update_idletasks()
-
+# ----------------- Q&A Logic -----------------
 def ask_question_thread():
-    global qa_model, loaded_text
     question = entry_question.get().strip()
 
     if not file_loaded:
@@ -93,6 +107,9 @@ def answer_question(question):
     output_text.see(tk.END)
     entry_question.delete(0, tk.END)
     set_status("Ready")
+
+    # Save Q&A to MongoDB
+    save_to_db(question, best_answer)
 
 # ----------------- GUI -----------------
 root = tk.Tk()
