@@ -26,10 +26,15 @@ source venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+### Install Ollama locally
+```bash
+irm https://ollama.com/install.ps1 | iex
+```
 ### Install if needed
 ```bash
 pip install transformers
 pip install torch --no-cache-dir
+pip install langchain langchain-community faiss-cpu sentence-transformers pymongo
 ```
 
 ### Run the AI agent

@@ -1,149 +1,199 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from transformers import pipeline
 import threading
+import requests
+import subprocess
+
+# ----------------- LangChain -----------------
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_community.llms import Ollama
+
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+
+# ----------------- MongoDB -----------------
 from pymongo import MongoClient
-
-# ----------------- MongoDB Setup -----------------
-# Replace with your MongoDB connection string if using Atlas
 client = MongoClient("mongodb://localhost:27017/")
-db = client['ai_qa_chat']         # Database
-collection = db['queries']        # Collection to store questions and answers
+db = client['ai_qa_chat']
+collection = db['queries']
 
-def save_to_db(question, answer):
-    """Save question-answer pair to MongoDB."""
-    doc = {"question": question, "answer": answer}
-    collection.insert_one(doc)
+def save_to_db(q, a):
+    collection.insert_one({"question": q, "answer": a})
 
-# ----------------- Models -----------------
-models_info = {
-    "Fast & Light (DistilBERT)": "distilbert-base-uncased-distilled-squad",
-    "Balanced (MiniLM)": "deepset/minilm-uncased-squad2",
-    "Accurate (BERT Large)": "bert-large-uncased-whole-word-masking-finetuned-squad",
-    "Multilingual (XLM-RoBERTa)": "deepset/xlm-roberta-base-squad2"
-}
-
-# ----------------- Global State -----------------
-loaded_text = None
-qa_model = None
+# ----------------- Globals -----------------
+qa_chain = None
 file_loaded = False
 
-# ----------------- Helper Functions -----------------
-def chunk_text(text, max_tokens=400):
-    words = text.split()
-    return [' '.join(words[i:i + max_tokens]) for i in range(0, len(words), max_tokens)]
-
-def read_txt_file(path):
-    with open(path, 'r', encoding='utf-8') as f:
-        return f.read()
-
+# ----------------- UI Helpers -----------------
 def set_status(text):
     status_label.config(text=text)
     root.update_idletasks()
 
-# ----------------- File Handling -----------------
+# ----------------- File -----------------
+def read_txt(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+# ----------------- Ollama Auto Setup -----------------
+def ensure_ollama_model(model="mistral"):
+    try:
+        requests.get("http://localhost:11434")
+    except:
+        messagebox.showerror("Error", "Ollama is not running. Please start it.")
+        return False
+
+    res = requests.get("http://localhost:11434/api/tags").json()
+    installed = [m["name"] for m in res.get("models", [])]
+
+    if model not in installed:
+        set_status(f"Downloading {model}...")
+        root.update()
+        subprocess.run(["ollama", "pull", model])
+
+    return True
+
+# ----------------- Build RAG -----------------
+def build_rag(text):
+    # Split
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=100
+    )
+    docs = splitter.create_documents([text])
+
+    # Embeddings
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
+
+    # Vector DB
+    vectorstore = FAISS.from_documents(docs, embeddings)
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+
+    # Ensure model exists
+    if not ensure_ollama_model("mistral"):
+        return None
+
+    llm = Ollama(model="mistral")
+
+    # Prompt
+    prompt = ChatPromptTemplate.from_template("""
+Answer the question using ONLY the context below.
+
+Context:
+{context}
+
+Question:
+{question}
+""")
+
+    # Format docs
+    def format_docs(docs):
+        return "\n\n".join(doc.page_content for doc in docs)
+
+    # 🔥 Modern RAG pipeline
+    rag_chain = (
+        {
+            "context": retriever | format_docs,
+            "question": RunnablePassthrough()
+        }
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
+
+    return rag_chain
+
+# ----------------- File Load -----------------
 def browse_file():
-    global file_loaded, loaded_text
+    global qa_chain, file_loaded
+
     path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt")])
     if not path:
         return
+
     entry_file.delete(0, tk.END)
     entry_file.insert(0, path)
 
-    set_status("Reading file...")
+    set_status("Processing file...")
     root.update()
 
     try:
-        loaded_text = read_txt_file(path)
-        file_loaded = True
-        set_status("File loaded successfully.")
+        text = read_txt(path)
+        qa_chain = build_rag(text)
+
+        if qa_chain:
+            file_loaded = True
+            set_status("Ready (Local RAG ✔)")
+        else:
+            set_status("Error")
+
     except Exception as e:
         messagebox.showerror("Error", str(e))
         set_status("Idle")
 
-# ----------------- Model Handling -----------------
-def load_model():
-    global qa_model
-    model_key = model_choice.get()
-    set_status(f"Loading model: {model_key} ...")
-    root.update()
-    qa_model = pipeline("question-answering", model=models_info[model_key])
-    set_status("Model ready!")
-
-# ----------------- Q&A Logic -----------------
-def ask_question_thread():
-    question = entry_question.get().strip()
+# ----------------- Ask -----------------
+def ask_thread():
+    q = entry_question.get().strip()
 
     if not file_loaded:
-        messagebox.showerror("Error", "Please load a file first.")
+        messagebox.showerror("Error", "Load a file first")
         return
-    if not question:
-        messagebox.showwarning("Warning", "Please enter a question.")
+
+    if not q:
         return
-    if qa_model is None:
-        load_model()
 
-    threading.Thread(target=answer_question, args=(question,), daemon=True).start()
+    threading.Thread(target=answer, args=(q,), daemon=True).start()
 
-def answer_question(question):
-    global qa_model, loaded_text
-    set_status("Answering...")
-    progress_bar['value'] = 0
+def answer(q):
+    set_status("Thinking...")
+    progress_bar['value'] = 50
     root.update_idletasks()
 
-    chunks = chunk_text(loaded_text)
-    best_answer = ""
-    best_score = 0
+    try:
+        # 🔥 NEW CALL
+        a = qa_chain.invoke(q)
 
-    for i, chunk in enumerate(chunks):
-        result = qa_model(question=question, context=chunk)
-        if result['score'] > best_score:
-            best_score = result['score']
-            best_answer = result['answer']
-        progress_bar['value'] = int((i + 1) / len(chunks) * 100)
-        root.update_idletasks()
+        output_text.insert(tk.END, f"\n🧠 You: {q}\n🤖 AI: {a}\n")
+        output_text.see(tk.END)
 
-    output_text.insert(tk.END, f"\n🧠 You: {question}\n🤖 AI: {best_answer}\n")
-    output_text.see(tk.END)
+        save_to_db(q, a)
+
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
     entry_question.delete(0, tk.END)
+    progress_bar['value'] = 100
     set_status("Ready")
-
-    # Save Q&A to MongoDB
-    save_to_db(question, best_answer)
 
 # ----------------- GUI -----------------
 root = tk.Tk()
-root.title("AI TXT Q&A Chat")
+root.title("Local RAG Chat (Auto Models)")
 
-# File selection
-tk.Label(root, text="Select File:").grid(row=0, column=0, sticky='e', padx=5, pady=5)
+# File
+tk.Label(root, text="File:").grid(row=0, column=0, padx=5, pady=5)
 entry_file = tk.Entry(root, width=50)
-entry_file.grid(row=0, column=1, padx=5)
-tk.Button(root, text="Browse", command=browse_file).grid(row=0, column=2, padx=5)
+entry_file.grid(row=0, column=1)
+tk.Button(root, text="Browse", command=browse_file).grid(row=0, column=2)
 
-# Model dropdown
-tk.Label(root, text="Model:").grid(row=1, column=0, sticky='e', padx=5, pady=5)
-model_choice = tk.StringVar()
-model_choice.set("Fast & Light (DistilBERT)")
-tk.OptionMenu(root, model_choice, *models_info.keys()).grid(row=1, column=1, sticky='w', padx=5)
-
-# Question input
-tk.Label(root, text="Ask a question:").grid(row=2, column=0, sticky='e', padx=5, pady=5)
+# Question
+tk.Label(root, text="Question:").grid(row=1, column=0)
 entry_question = tk.Entry(root, width=50)
-entry_question.grid(row=2, column=1, padx=5)
-tk.Button(root, text="Ask", command=ask_question_thread, bg="lightblue").grid(row=2, column=2, padx=5)
+entry_question.grid(row=1, column=1)
+tk.Button(root, text="Ask", command=ask_thread, bg="lightblue").grid(row=1, column=2)
 
-# Progress bar
-progress_bar = ttk.Progressbar(root, orient="horizontal", length=400, mode="determinate")
-progress_bar.grid(row=3, column=1, padx=5, pady=5, sticky='w')
+# Progress
+progress_bar = ttk.Progressbar(root, length=400)
+progress_bar.grid(row=2, column=1)
 
 status_label = tk.Label(root, text="Idle")
-status_label.grid(row=3, column=0, padx=5, pady=5, sticky='e')
+status_label.grid(row=2, column=0)
 
-# Output chat box
-tk.Label(root, text="Chat:").grid(row=4, column=0, sticky='ne', padx=5, pady=5)
-output_text = tk.Text(root, height=20, width=80, wrap='word')
-output_text.grid(row=4, column=1, columnspan=2, padx=5, pady=5)
+# Output
+output_text = tk.Text(root, height=20, width=80)
+output_text.grid(row=3, column=0, columnspan=3)
 
 root.mainloop()
-
